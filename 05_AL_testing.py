@@ -17,6 +17,16 @@ import numpy as np
 from collections import defaultdict
 import torch
 
+
+import configparser
+
+config = configparser.ConfigParser()
+
+# Read the config.ini file
+config.read('config.ini')
+
+API_KEY = config.get("settings", "openai_api")
+
 #fine-tuned modesl - Yelp => ft:gpt-3.5-turbo-0613:university-of-notre-dame::7rGMCwdF
 #                   - massive => ft:gpt-3.5-turbo-0613:university-of-notre-dame::8UH39TNK
 
@@ -27,7 +37,7 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 
 
 client = OpenAI(
-    api_key="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"
+    api_key=API_KEY
 )
 
 def get_clusters(shuffled_df):
