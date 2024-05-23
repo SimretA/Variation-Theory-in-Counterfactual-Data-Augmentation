@@ -19,4 +19,11 @@ This file iteratively trains the symbolic model and generates patterns using the
 ### 02_counterfactual_over_generation
 This file uses the candidate phrases generated in the previous file to generate the counterfactual examples that will be used for finetuning a GPT-3.5.
 
-### 03
+### 03_counterfactual_filtering
+This file uses the three level filters -- herustic, symbolic, and GPT-discriminator -- to assess the qualtity of previously generated counterfactuals.
+
+### 04_fine_tuning
+This file fine-tunes a GPT-3.5 model to generate counterfactual data.
+
+### 05_AL_testing_BERT, 05_AL_testing
+These files iteratevely train BERT and GPT models using the different cases and meaure the performance of the trained models.

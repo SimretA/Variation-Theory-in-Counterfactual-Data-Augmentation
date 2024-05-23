@@ -9,11 +9,20 @@ import re
 from openai import OpenAI
 import spacy
 from spacy.matcher import Matcher
+import configparser
 
-seed = 1
+config = configparser.ConfigParser()
+# Read the config.ini file
+config.read('config.ini')
+
+API_KEY = config.get("settings", "openai_api").split('#')[0].strip()
+DATA_FILE = config.get("settings", "data_file").split('#')[0].strip()
+SEED = config.get("settings", "seed").split('#')[0].strip()
+
+seed = int(SEED)
 
 client = OpenAI(
-    api_key="<<API_KEY>>"
+    api_key=API_KEY
 )
 
 nlp = spacy.load("en_core_web_sm")
@@ -104,12 +113,6 @@ def gpt_discriminator_filtering(df):
     flagg = False
 
     for i in range(len(df)):
-        print("len is_ori", len(is_ori))
-
-        if flagg:
-            print("len after flagg", len(is_ori))
-            flagg = False
-        
         
         chosen_flag = 1
         response = client.chat.completions.create(
@@ -192,18 +195,21 @@ def gpt_discriminator_filtering(df):
     df['is_ori'] = is_ori
     df['is_target'] = is_target
 
-    df.to_csv(f'output_data/[{seed}]filtered_{sys.argv[1]}',index=False)
-    df_finetune.to_csv(f'output_data/[{seed}]fine_tuneset_{sys.argv[1]}', index=False)
+    df.to_csv(f'output_data/[{seed}]filtered_{DATA_FILE}',index=False)
+    df_finetune.to_csv(f'output_data/[{seed}]fine_tuneset_{DATA_FILE}', index=False)
 
 
 
 if __name__ == "__main__":
     
-    file = f"output_data/{sys.argv[1]}"
-    
-    df = pd.read_csv(file)
+    file = f"output_data/[{seed}]counterfactuals_{DATA_FILE}"
+    try:
+        df = pd.read_csv(file)
+    except:
+        print(f"ERROR: can not read file {file}")
+        sys.exit(1)
 
-    file_path = f"input_data/{sys.argv[2]}"
+    file_path = f"input_data/{DATA_FILE}"
     try:
         data = pd.read_csv(file_path)
         print("INFO: Finished reading data")
@@ -211,7 +217,7 @@ if __name__ == "__main__":
         print(f"ERROR: can not read file {file_path}")
         sys.exit(1)
 
-    patat = APIHelper(dataset = data, file_name=sys.argv[2][:-4])
+    patat = APIHelper(dataset = data, file_name=DATA_FILE[:-4])
     similarity_dict = patat.similarity_dict
 
     # #heuristic filtering
@@ -223,5 +229,3 @@ if __name__ == "__main__":
     # #GPT discriminator filtering
     gpt_discriminator_filtering(symbolic_filtered_df)
     
-    
-    # symbolic_filtered_df.to_csv(f"output_data/[DEL_ME]filtered_{sys.argv[1]}", index=False)

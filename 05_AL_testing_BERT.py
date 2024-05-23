@@ -31,6 +31,15 @@ import numpy as np
 
 import random
 from collections import defaultdict
+import configparser
+
+config = configparser.ConfigParser()
+# Read the config.ini file
+config.read('config.ini')
+
+DATA_FILE = config.get("settings", "data_file").split('#')[0].strip()
+TEST_FILE = config.get("settings", "test_file").split('#')[0].strip()
+SEED = config.get("settings", "seed").split('#')[0].strip()
 
 
 
@@ -68,7 +77,7 @@ def tokenize_function(examples):
 
 def counterfactual_case(shuffled_df, df_test_shuffled, seed, data_name="yelp"):
 
-    selections = [10, 15, 30, 50, 70, 90] #, 120, 150, 170]
+    selections = [10, 15, 30, 50, 70, 90, 120, 150, 170]
 
     test_size = 100
 
@@ -434,23 +443,29 @@ def cluster_case(shuffled_df, df_test_shuffled, seed, data_name):
 
 
 if __name__ == "__main__":
-    if len(sys.argv)<2:
-        print("ERROR: No Data file procided.")
-        sys.exit(1)
 
-    training_path = f"output_data/{sys.argv[1]}"
-    test_path = f"input_data/{sys.argv[2]}"
-    dataname = sys.argv[1][:-4]
+
+    training_path = f"output_data/[{SEED}]filtered_{DATA_FILE}"
+    test_path = f"input_data/{TEST_FILE}"
+    dataname = DATA_FILE[:-4]
 
     seeds = [1, 42, 55, 99, 1234, 92, 765, 555]
     for seed in seeds:
         torch.cuda.empty_cache()
 
-        #training df
-        training_df = pd.read_csv(training_path)
+        try:
+            #training df
+            training_df = pd.read_csv(training_path)
+        except:
+            print(f"ERROR: can not read file {training_path}")
+            sys.exit(1)
 
-        #testing df
-        testing_df = pd.read_csv(test_path)
+        try:
+            #testing df
+            testing_df = pd.read_csv(test_path)
+        except:
+            print(f"ERROR: can not read file {test_path}")
+            sys.exit(1)
 
         df_unique = training_df.drop_duplicates(subset='id')
 

@@ -21,17 +21,16 @@ import torch
 import configparser
 
 config = configparser.ConfigParser()
-
 # Read the config.ini file
 config.read('config.ini')
 
-API_KEY = config.get("settings", "openai_api")
+DATA_FILE = config.get("settings", "data_file").split('#')[0].strip()
+TEST_FILE = config.get("settings", "test_file").split('#')[0].strip()
+SEED = config.get("settings", "seed").split('#')[0].strip()
+API_KEY = config.get("settings", "openai_api").split('#')[0].strip()
 
-#fine-tuned modesl - Yelp => ft:gpt-3.5-turbo-0613:university-of-notre-dame::7rGMCwdF
-#                   - massive => ft:gpt-3.5-turbo-0613:university-of-notre-dame::8UH39TNK
 
-
-seed = 1
+seed = int(SEED)
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -94,8 +93,6 @@ def update_example(messages, text, label):
 
 
 
-#generate counterfactuals and get label predictions 
-
 
 #random
 def random_shots(df, df_test, unique_ids ,label_map, N, test_num):
@@ -143,13 +140,15 @@ def random_shots(df, df_test, unique_ids ,label_map, N, test_num):
         all_count += 1
 
     fscore = f1_score(y_true, y_pred, average='macro')
+    # prf = precision_recall_fscore_support(y_true, y_pred, average='macro')
+    # results.append([N, prf[0], prf[1], prf[2]])
 
     logger.info(f"Random, {N}, {test_num }, {correct_count}, {valid_count}, {all_count}, {fscore}")
     print("Random: ", N, test_num,  correct_count, valid_count, all_count, fscore)
 
     #write y_true and y_pred into a csv file
     df = pd.DataFrame(list(zip(y_true, y_pred)), columns =['y_true', 'y_pred'])
-    df.to_csv(f"output_data/[{seed}]testrandom_{sys.argv[1][:-4]}_{N}_{test_num}.csv", index=False)
+    df.to_csv(f"output_data/[{seed}]random_{DATA_FILE[:-4]}_{N}_{test_num}.csv", index=False)
 
 
 #cluster
@@ -204,7 +203,7 @@ def clustered_shots(df, df_test, unique_ids ,label_map, N, test_num):
         prf = precision_recall_fscore_support(y_true, y_pred, average='macro')
         results.append([selection, prf[0], prf[1], prf[2]])
     df2 = pd.DataFrame(results, columns =['shots', 'precision', 'recall', 'fscore'])
-    df2.to_csv(f"output_data/[{seed}][GPT]_cluster_{sys.argv[1][:-4]}_{N}_{test_num}_prf.csv", index=False)
+    df2.to_csv(f"output_data/[{seed}][GPT]_cluster_{DATA_FILE[:-4]}_{N}_{test_num}_prf.csv", index=False)
 
     
 
@@ -301,33 +300,44 @@ if __name__ == "__main__":
     results = []
     selections = [10, 15, 30, 50, 70, 90, 120]
 
-    file = f"output_data/{sys.argv[1]}" #filtered_counterfactuals_candidate_phrases_annotated_data_[500]emotions.csv
-    test_file = f"input_data/{sys.argv[2]}" #yelplabeled_test.csv
-    
-    df = pd.read_csv(file)
-    df_test = pd.read_csv(test_file)
+    training_path = f"output_data/[{SEED}]filtered_{DATA_FILE}"
+    test_path = f"input_data/{TEST_FILE}"
+    try:
+        #training df
+        df = pd.read_csv(training_path)
+    except:
+        print(f"ERROR: can not read file {training_path}")
+        sys.exit(1)
+
+    try:
+        #testing df
+        df_test = pd.read_csv(test_path)
+    except:
+        print(f"ERROR: can not read file {test_path}")
+        sys.exit(1)
 
     train = None
     test = None
     
-
-    #TODO: have a separate file to store the test set
-
     label_list = df["ori_label"].unique().tolist()
     ids = df["id"].unique().tolist()
 
 
     logger = logging.getLogger(__name__)
-    logging.basicConfig(filename=f'AL_results_random_{sys.argv[1][:-4]}.log', encoding='utf-8', level=logging.INFO)
+    logging.basicConfig(filename=f'AL_results_random_{DATA_FILE[:-4]}.log', encoding='utf-8', level=logging.INFO)
 
     label_map = {label: f'concept {chr(65 + i)}' for i, label in enumerate(label_list)}
 
     test_num = 100
     clustered_shots(df, df_test, ids, label_map, 30, test_num)
-    # for N in selections:
-    #     # random_shots(df, df_test, ids, label_map, N, test_num)
-    #     prf = counterfactual_shots(df, df_test, label_map, N, test_num)
-    #     results.append([N, prf[0], prf[1], prf[2]])
 
-    # df2 = pd.DataFrame(results, columns =['shots', 'precision', 'recall', 'fscore'])
-    # df2.to_csv(f"output_data/[{seed}][GPT]_counter_{sys.argv[1][:-4]}_{N}_{test_num}_prf.csv", index=False)
+    for N in selections:
+        random_shots(df, df_test, ids, label_map, N, test_num)
+    
+    resutls = []
+    for N in selections:
+        prf = counterfactual_shots(df, df_test, label_map, N, test_num)
+        results.append([N, prf[0], prf[1], prf[2]])
+
+    df2 = pd.DataFrame(results, columns =['shots', 'precision', 'recall', 'fscore'])
+    df2.to_csv(f"output_data/[{seed}][GPT]_counter_{sys.argv[1][:-4]}_{N}_{test_num}_prf.csv", index=False)
