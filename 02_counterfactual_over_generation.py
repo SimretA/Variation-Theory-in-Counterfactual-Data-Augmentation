@@ -4,21 +4,31 @@ import pandas as pd
 #import PaTAT things
 # from PaTAT_piped.api_helper import APIHelper
 import re
+import configparser
 
 from openai import OpenAI
+config = configparser.ConfigParser()
+# Read the config.ini file
+config.read('config.ini')
+
+API_KEY = config.get("settings", "openai_api").split('#')[0].strip()
+DATA_FILE = config.get("settings", "data_file").split('#')[0].strip()
+SEED = config.get("settings", "seed").split('#')[0].strip()
 
 
 client = OpenAI(
-    api_key="<<API_KEY>>"
+    api_key=API_KEY
 )
-seed=1
+seed=int(SEED)
 
-if len(sys.argv)<1:
+if len(DATA_FILE)<1:
     print("ERROR: No Data file procided.")
     sys.exit(1)
 
+candidate_file = f"[{SEED}]{DATA_FILE[:-4]}_candidate_phrases_annotated_data.csv"
+
 #candidate_phrases_annotated_data_emotions_labeled.csv
-df = pd.read_csv(f"output_data/{sys.argv[1]}")
+df = pd.read_csv(f"output_data/{candidate_file}")
 
 col_names = ["id", "ori_text", "ori_label", "pattern", "highlight", "candidate_phrases", "target_label", "counterfactual"]
 
@@ -26,6 +36,8 @@ data_collector = []
 
 
 print("LOG: Data loaded successfully. Generating counterfactuals...")
+
+
 #iterate over row and generate counterfactuals
 for index, row in df.iterrows():
     print(f"Processing {index}...")
@@ -37,8 +49,8 @@ for index, row in df.iterrows():
     pattern = row["pattern"]
     
     response2 = client.chat.completions.create(
-                # model="gpt-4",
-                model="gpt-3.5-turbo",
+                model="gpt-4",
+                # model="gpt-3.5-turbo",
                 messages=[
                     {"role":"system" ,"content":"The assistant will create generate a counterfactual example close to the original sentence that contains one of the given phrases."},
                     {"role":"user" ,
@@ -62,4 +74,4 @@ for index, row in df.iterrows():
     data_collector.append([row["id"], text, label, pattern, hihglight, generated_phrases, target_label, data2])
 
 df2 = pd.DataFrame(data_collector, columns=col_names)
-df2.to_csv(f"output_data/[{seed}]counterfactuals_{sys.argv[1]}", index=False)
+df2.to_csv(f"output_data/[{seed}]counterfactuals_{DATA_FILE}", index=False)
