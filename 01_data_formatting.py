@@ -8,6 +8,9 @@ import configparser
 
 
 from openai import OpenAI
+import tiktoken
+
+encoding = tiktoken.encoding_for_model("gpt-4")
 
 
 config = configparser.ConfigParser()
@@ -59,7 +62,7 @@ def get_patat_patterns():
 
 
     #get patterns from 5, 10, 15...up to 250 annotations from PaTAT
-    for i in range(0, len(df), 10):
+    for i in range(20, len(df), 30):
         #select five random ids at a time and append to annotated_ids
         batch_ids = df.iloc[i:i+5]['id'].to_list()
 
@@ -125,8 +128,14 @@ def get_candidate_phrases():
     col_names_2 = ["id", "ori_text", "ori_label", "pattern", "highlight", "target_label", "candidate_phrases"]
     data_collector_2 = []
 
+    num_tokens = 0
+
     #table should have ID, setnence, pattern, target_label, candidate phases
     for i, row in df.iterrows():
+        
+        if num_tokens >10000000:
+            print("INFO: Skipping the request due to token limit")
+            break
         print(f"INFO: Generating candidate phrases for {row['id']}")
         sentence = row['ori_text']
         pattern = row['pattern']
@@ -142,6 +151,9 @@ def get_candidate_phrases():
             continue
 
         for matched_phrase in marked_phrases:
+            if num_tokens >10000000:
+                print("INFO: Skipping the request due to token limit")
+                break
             print(f"INFO: Generating candidate phrases for {row['id']} with matched phrase {matched_phrase}")
             #create candidate phrases for each label that is not the origianl label
             for target_label in unique_labels:
@@ -149,39 +161,65 @@ def get_candidate_phrases():
                     continue
                 else:
                     messages=[
-                    {"role":"system" ,"content":"The assistant will create a list of phrases that match the given domain specific language based on the given definition."},
-                    {"role":"user" ,
-                        "content":'''The domain specific pattern laguge includes the follwing patterns:
-                        Part-of-speech (POS) tags: VERB, PROPN, NOUN, ADJ, ADV, AUX, PRON, NUM
-                        Word stemming: [WORD] (e.g., [have] will match all variants of have)
-                        Soft match: (word) (word will only be matched with a limited set of similar words provided in this instruction)
-                        Entity type: $ENT-TYPE (e.g., $LOCATION will match phrases of location type, such as Houston; $DATE will match dates)
-                        Wildcard: * (will match any sequence of words)'''},
-                    {"role":"user", "content":"The patterns can be combined using an and operator (+) or an or operator (|)."},
-                    {"role":"user", "content":"For example the pattern 'VERB PROPN' will match any sentence that has a verb followed by a proper noun."},
-                    {"role":"user", "content":f"For the following text and pattern, generate as many diverse example phrases that match the given pattern and can be part of the given target label. Try to not use the word {label} or {target_label} in the phrases you generate. Separated your answer by a comma"},
-
-                    {"role":"user", "content":"text: third bong hit, pattern: $ORDINAL+*+NOUN+VERB, current label:fear, target label:sadness"},
-                    {"role":"assistant", "content":"'third bong hit', 'third attempt failed', 'first idea works', 'second plan succeeds', 'fourth project launches', 'fifth attempt succeeds', 'sixth strategy works', 'seventh game wins', 'eighth proposal passes', 'ninth scheme fails', 'tenth trial succeeds'"},
-
-                    {"role":"user", "content":f"For the following text and pattern, generate as many diverse example phrases that match the given pattern and can be part of the given target label. Try to not use the word {label} or {target_label} in the phrases you generate. Separated your answer by a comma"},
-                    {"role":"user" ,"content":f"text: {highlight}, pattern: {pattern}, current label: {label} target label: {target_label}"},
+                        {"role": "system", "content": [{"text": "The assistant will create a list of candidate phrases that match the given symbolic domain specific pattern. The domain specific pattern definition is given below.\n\nThe domain specific pattern symbols includes the following patterns:\n- Part-of-speech (POS) tags are capital: VERB, PROPN, NOUN, ADJ, ADV, AUX, PRON, NUM\n- Word stemming are surrounded in [] and should have an exact match: [WORD] (e.g., [have] will match all variants of have)\n- Soft match are surrounded by () and will match words with their synonyms. The list of synonms for each soft match in a pattern are given in the user instruction: (word) (word will only be matched with a limited set of similar words provided in this instruction)\n- Entity type start with $ sign: $ENT-TYPE (e.g., $LOCATION will match phrases of location type, such as Houston; $DATE will match dates)\n- Wildcard is the * symbol and can match anything: * (will match any sequence of words)\n\nThe patterns can be combined using an and operator (+) or an or operator (|).\nFor example the pattern 'VERB + PROPN' will match any sentence that has a verb followed by a proper noun.\n\nSoft matches can only be replaced with a list of available words. \n\nFor the following text and pattern, generate as many diverse example phrases that match the given pattern and can be part of the given target label. Separated your answer by a comma",
+                            "type": "text"}]},
+                        {"role": "user", "content": [{"text": "sentence:'Too many other places to shop with better prices .', phrase to modify: 'prices .', pattern: '(price)+*', current label: price,  softmatch:[price:[purchase, pricey, cheap, cost, pricing]], target label: service,",
+                            "type": "text" }]},
+                        {"role": "assistant", "content": [{"text": "purchase options, pricey service, cheap help, pricing plans, cost breakdown",
+                            "type": "text"}]},
+                        {"role": "user", "content": [{"text": "sentence:' they have great produce and seafood', phrase to modify: 'seafood', pattern: '[seafood]|NOUN', current label: products, target label: service\n",
+                            "type": "text"
+                            }]},
+                        {"role": "assistant",
+                        "content": [{"text": "hospitality, seafood, help, management, staff",
+                            "type": "text"}]},
+                        {"role": "user","content": [{"text": "sentence:' the wings were delicious', phrase to modify: 'delicious', pattern: '(delicious)|$DATE', current label: products,  softmatch:[delicious:['taste', 'flavor', 'deliciousness', 'yummy', 'tasty', 'flavour', 'delicious']], target label: price",
+                            "type": "text"}]},
+                        {"role": "assistant",
+                        "content": [{"text": "affordably delicious, on sale today, priced well for their flavour, deliciousness",
+                            "type": "text"}]},
+                        {"role": "user", "content": [{"text": "sentence:' they should be shut down for terrible service .', phrase to modify: 'service', pattern: '(service)+(manager)+*', current label: service,  softmatch:[service:['customer', 'service'], manager:['management', 'manage', 'manager']], target label: price",
+                            "type": "text"}]},
+                        {"role": "assistant",
+                        "content": [{"text": "[ service charge, service fee, customer cost, manage pricing, management price]",
+                            "type": "text"}]}
                     ]
                     
+                    req_message = f"sentence:' {sentence}', phrase to modify: '{highlight}', pattern: '{pattern}', current label: {label}, target label: {target_label}"
+
                     matches = re.findall(r'\(([^)]+)\)', pattern)
+        
                     if len(matches)>0:
+                        #if we have softmatches open the dictionary and get the list of words
                         instructions = "Softmatches can only be replaced with a list of available words. "
+                        softmatch_collector ={}
                         for match in matches:
                             if match in patat.similarity_dict:
                                 soft_match_words = list(patat.similarity_dict[match].keys()) + [match]
+                                softmatch_collector[match] = soft_match_words
                                 instructions += f"The word `{match}` is a soft match, you can only use {soft_match_words} as its synonyms to replace it. You can not use other words for {match}\n"
-                        messages.insert(4,{"role":"user" ,"content":instructions})
+                        # messages.insert(4,{"role":"user" ,"content":instructions})
+                        req_message = f"sentence:' {sentence}', phrase to modify: '{highlight}', pattern: '{pattern}', current label: {label},  softmatch:{softmatch_collector}, target label: {target_label}"
+                    messages.append({"role": "system", "content": [{"text": req_message, "type": "text"}]})
+
+                    
+
+                    
+                    for message in messages:
+                        num_tokens += len(encoding.encode(message["content"][0]["text"]))
+                    print(f"INFO: Number of tokens {num_tokens}")
+                    
+                    # if num_tokens<=6000000:
+                    #     print(f"SKIPPING because already generated")
+                    #     continue
+
                     
                     response = client.chat.completions.create(
-                        model="gpt-4-1106-preview",
-                        # model="gpt-3.5-turbo",
+                        # model="gpt-4o",
+                        model="gpt-3.5-turbo",
                         messages=messages,
                         temperature=0, max_tokens=256, stop=["\n"])
+                    
                     
 
                     data = response.choices[0].message.content

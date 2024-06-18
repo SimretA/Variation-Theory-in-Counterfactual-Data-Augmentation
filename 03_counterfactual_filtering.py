@@ -27,7 +27,7 @@ client = OpenAI(
 
 nlp = spacy.load("en_core_web_sm")
 #heuristic filtering: check if the counterfactual is a valid sentence
-def heuristic_filtering(df):
+def heuristic_filtering(df, finetuned=False):
 
     herustic_filtered = []
     #iterrate over the rows
@@ -40,10 +40,16 @@ def heuristic_filtering(df):
 
     #append the filtered list to the dataframe
     df['heuristic_filtered'] = herustic_filtered
+
+    #write into file to save progress and calculate the data quality
+    if not finetuned:
+        df.to_csv(f'output_data/interim_output/[{seed}]heuristic_filtered_{DATA_FILE}',index=False)
+    else:
+        df.to_csv(f'output_data/interim_output/[{seed}][finetuned]heuristic_filtered_{DATA_FILE}',index=False)
     return df
 
 #Symbolic filtering: check if the pattern matches the counterfactual
-def symbolic_filtering(df, similarity_dict):
+def symbolic_filtering(df, similarity_dict,  finetuned=False):
     
     matched_pattern_list = []
     total_true = 0
@@ -73,9 +79,13 @@ def symbolic_filtering(df, similarity_dict):
     #pattern keeping rate
     print("The pattern keeping rate is: ", total_true/(total_true+total_false))
 
+    #write into file to save progress and calculate the data quality
+    if finetuned:
+        df.to_csv(f'output_data/interim_output/[{seed}][finetuned]symbolic_filtered_{DATA_FILE}',index=False)
+    else:
+        df.to_csv(f'output_data/interim_output/[{seed}]symbolic_filtered_{DATA_FILE}',index=False)
+
     return df
-
-
 
 
 def check_matching(sent, working_list, explain=False):
@@ -95,7 +105,7 @@ def check_matching(sent, working_list, explain=False):
 
 
 #GPT discriminator filtering: check if the counterfactual changes to the target label
-def gpt_discriminator_filtering(df):
+def gpt_discriminator_filtering(df,  finetuned=False):
     label_list = df['ori_label'].unique()
     print('The number of generations to be evaluated: ', len(df))
 
@@ -195,14 +205,24 @@ def gpt_discriminator_filtering(df):
     df['is_ori'] = is_ori
     df['is_target'] = is_target
 
-    df.to_csv(f'output_data/[{seed}]filtered_{DATA_FILE}',index=False)
-    df_finetune.to_csv(f'output_data/[{seed}]fine_tuneset_{DATA_FILE}', index=False)
+    if finetuned:
+        df.to_csv(f'output_data/[{seed}][finetuned]filtered_{DATA_FILE}',index=False)
+    else:
+        df.to_csv(f'output_data/[{seed}]filtered_{DATA_FILE}',index=False)
+        df_finetune.to_csv(f'output_data/[{seed}]fine_tuneset_{DATA_FILE}', index=False)
 
 
 
 if __name__ == "__main__":
     
     file = f"output_data/[{seed}]counterfactuals_{DATA_FILE}"
+    finetuned = False
+
+    #if data file is provided through sys.args, read that file instead
+    if len(sys.argv) > 1:
+        file = f"output_data/{sys.argv[1]}"
+        finetuned = True
+    print(f"Reading file {file}")
     try:
         df = pd.read_csv(file)
     except:
@@ -216,16 +236,16 @@ if __name__ == "__main__":
     except:
         print(f"ERROR: can not read file {file_path}")
         sys.exit(1)
-
-    patat = APIHelper(dataset = data, file_name=DATA_FILE[:-4])
+    #TODO fix below
+    patat = APIHelper(dataset = data, file_name="[500]emotions") # DATA_FILE[:-4])
     similarity_dict = patat.similarity_dict
 
     # #heuristic filtering
-    herustic_filtered_df = heuristic_filtering(df)
+    herustic_filtered_df = heuristic_filtering(df, finetuned=finetuned)
 
     # #symbolic filtering
-    symbolic_filtered_df = symbolic_filtering(herustic_filtered_df, similarity_dict)    
+    symbolic_filtered_df = symbolic_filtering(herustic_filtered_df, similarity_dict, finetuned=finetuned)    
     
     # #GPT discriminator filtering
-    gpt_discriminator_filtering(symbolic_filtered_df)
+    gpt_discriminator_filtering(symbolic_filtered_df, finetuned=finetuned)
     

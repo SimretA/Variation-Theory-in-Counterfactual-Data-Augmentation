@@ -49,8 +49,7 @@ for index, row in df.iterrows():
     pattern = row["pattern"]
     
     response2 = client.chat.completions.create(
-                model="gpt-4",
-                # model="gpt-3.5-turbo",
+                model="gpt-4o",
                 messages=[
                     {"role":"system" ,"content":"The assistant will create generate a counterfactual example close to the original sentence that contains one of the given phrases."},
                     {"role":"user" ,

@@ -22,7 +22,6 @@ DATA_FILE = config.get("settings", "data_file").split('#')[0].strip()
 SEED = config.get("settings", "seed").split('#')[0].strip()
 
 
-
 #fine-tuned modesl - Yelp => ft:gpt-3.5-turbo-0613:university-of-notre-dame::8US4bHqN
 #                   - massive => ft:gpt-3.5-turbo-0613:university-of-notre-dame::8UH39TNK
 
@@ -51,16 +50,36 @@ def generate_counterfactual_withmodel(modelname = None):
         label = row["ori_label"]
         target_label = row["target_label"]
         generated_phrases = row["candidate_phrases"]
-        hihglight = row["highlight"]
+        highlight = row["highlight"]
         pattern = row["pattern"]
 
-        test_prompt = f'{text}\nOriginal label: {label}\nPattern: {pattern} \nHighlight: {hihglight} \n Candidate phrases: {generated_phrases} \nTarget label: {target_label}\n\n###\n\n'
+        messages=[{"role": "system", "content": "The assistant will modify a given original text to change its label by making small changes. The modified sentence should be as close to the original sentence as possible. The modified sentence must always include one of the user provided candidate phrases\nThe assistant will modify the given sentence with a goal of changing its current label to the target label while strictly following the following criteria:\ncriteria 1: the modified sentence should change its label from the original label to the target label to the highest degree. However the modified sentence must always include one of the provided candidate phrases. and the assistant will provide which phrase was included in the response\ncriteria 2: the modified sentence can not also be about the original label.\ncriteria 3: the modified sentence should be grammatically correct. The sentence must not contain any contractions. For example, instead of \"I'm\" use \"I am\".\ncriteria 4: the modified sentence should overlap with the original sentence as much as possible. do not make any unnecessary changes or additions to the original sentence. Try to add, change, or remove the least number of words.\ncriteria 5: the modified sentence should not include the literal word of the target label.\n\n"},
+                {"role": "user", "content":  "original sentence: 'Find me a train ticket next monday to new york city' , original label:transport, target label: audio, candidate phrases:['sing me a song', 'play me a song', 'show me a train']"},
+                {"role": "assistant", "content": "\nmodified sentence: 'Play me a song called New York City by Taylor Swift' "},
+                {"role": "user", "content":  "original sentence: \"The wings were delicious .\", original label: product, target label: price, candidate phrases: ['yummy', 'tasty', 'flavour', 'deliciousness', 'taste', 'delicious']\n"},
+                {"role": "assistant", "content":"\nmodified sentence: \"The delicious wings were worth every penny.\""},
+                {"role": "assistant", "content": "\nmodified sentence: \"The yummy flavor was worth every penny.\""},
+                {"role": "user", "content":"original sentence: \"The wings were delicious .\", original label: product, target label: environmnet, candidate phrases: ['January 1st', 'February 14th', 'March 30th', 'April 25th', 'May 10th', 'June 5th', 'July 20th', 'August 15th', 'September 3rd', 'October 12th', 'November 8th', 'December 24th']"},
+                {"role": "assistant", "content": "\nmodified sentence: \"The January 1st wings were too cold.\""},
+                {"role": "user", "content": "original sentence: \"Too many other places to shop with better prices .\", original label: price, target label: service, candidate phrases: ['costs .', 'pricing .', 'sale .', 'fees .', 'pricing .', '5-$10 .', '40.00 .', 'costs .', 'pricing .']"},
+                {"role": "assistant","content": "\nmodified sentence: \"Too many other places to shop with better service costs.\""},
+                {"role": "user", "content":  f"original sentence: \"{text}\", original label: {label}, pattern:{pattern}, highlight:{highlight} candidate phrases: {generated_phrases}, target label: {target_label} \n\n###\n\n"},
+                 ]
+
+        # test_prompt = f'{text}\nOriginal label: {label}\nPattern: {pattern} \nHighlight: {hihglight} \n Candidate phrases: {generated_phrases} \nTarget label: {target_label}\n\n###\n\n'
 
         
         response = client.chat.completions.create(
             model=modelname,
-            messages=[{"role":"user", "content":test_prompt}]
+            messages=messages,
+            temperature=0, max_tokens=256, stop=["\n"]
             )
+        # print(f"{text} -- {label}\n\n")
+
+        # print(f"{highlight} -- {pattern}\n\n")
+        # print(f"candidate phrases: {generated_phrases}\n\n")
+
+        # print(f"{response.choices[0].message.content} -- {target_label}\n\n")
         counter_df = counter_df.append({"id": row["id"], "ori_text": row["ori_text"], "ori_label": row["ori_label"], "pattern": row["pattern"], "highlight": row["highlight"], "candidate_phrases": row["candidate_phrases"], "target_label": row["target_label"], "counterfactual": response.choices[0].message.content}, ignore_index=True)
 
 
@@ -80,10 +99,12 @@ def fine_tune_model(file_path, candidate_phrases_path):
     prompts = []
     messages = []
     completions = []
+    count = 0
 
     
 
     for i, row in data.iterrows():
+        print(f"Processing {i}...")
 
         # check if the the row has gone through the three filters
         passed_filter = row['matched_pattern'] and row['heuristic_filtered'] and row['is_target'] and (not row['is_ori'])
@@ -93,23 +114,8 @@ def fine_tune_model(file_path, candidate_phrases_path):
         
         if not passed_filter:
             continue
-        
+        count += 1
 
-
-        message = []
-
-        message.append({"role":"system" ,"content":"The assistant will generate a counterfactual example close to the original sentence that contains one of the given candidate phrases."})
-        message.append({"role":"system" ,
-                        "content":f'''
-                        The system will change the given sentence from the current label to the target.
-                        For example: 'Find me a train ticket next monday to new york city' with original label:transport would be turned to 'Play me a song called New York City by Taylor Swift' with a label audio.
-                        The system must use one of the provided candidate phrases to help you generate the counterfactuals.
-                        Please make the sentnece about the target_label. Make sure that the new sentence is not about the original label.
-                        You must use one of the candidate phrases without rewording it in the new sentence based on the following three criteria:
-                        criteria 1: the phrase should change the label from the original label to the target_label to the highest degree. 
-                        criteria 2: the modified sentence can not also be about the original label.
-                        criteria 3: the modified sentence should be grammatically correct.
-                    '''})
         id = row['id']
         #select a row with the same id from candidate_phrases
         target_label = row['target_label']
@@ -118,23 +124,38 @@ def fine_tune_model(file_path, candidate_phrases_path):
         highlight = row['highlight']
         candidate_phrase = row['candidate_phrases']
         try:
-            text = data['ori_text'][i].strip() + '\nOriginal label: ' + row['ori_label'] + '\nPattern: ' + pattern +  '\nHighlight: ' + highlight + '\nCandidate phrases: ' + candidate_phrase  + '\nTarget label: ' + target_label+ '\n\n###\n\n'
+            outcome = " "+ row['counterfactual'].strip() + "###"
+            message=[{
+                    "role": "system", "content": "The assistant will modify a given original text to change its label by making small changes. The modified sentence should be as close to the original sentence as possible. The modified sentence must always include one of the user provided candidate phrases\nThe assistant will modify the given sentence with a goal of changing its current label to the target label while strictly following the following criteria:\ncriteria 1: the modified sentence should change its label from the original label to the target label to the highest degree. However the modified sentence must always include one of the provided candidate phrases. and the assistant will provide which phrase was included in the response\ncriteria 2: the modified sentence can not also be about the original label.\ncriteria 3: the modified sentence should be grammatically correct. The sentence must not contain any contractions. For example, instead of \"I'm\" use \"I am\".\ncriteria 4: the modified sentence should overlap with the original sentence as much as possible. do not make any unnecessary changes or additions to the original sentence. Try to add, change, or remove the least number of words.\ncriteria 5: the modified sentence should not include the literal word of the target label.\n\n"},
+                    {"role": "user", "content":  "original sentence: 'Find me a train ticket next monday to new york city' , original label:transport, target label: audio, candidate phrases:['sing me a song', 'play me a song', 'show me a train']"},
+                    {"role": "assistant", "content": "\nmodified sentence: 'Play me a song called New York City by Taylor Swift' "},
+                    {"role": "user", "content":  "original sentence: \"The wings were delicious .\", original label: product, target label: price, candidate phrases: ['yummy', 'tasty', 'flavour', 'deliciousness', 'taste', 'delicious']\n"},
+                    {"role": "assistant", "content":"\nmodified sentence: \"The delicious wings were worth every penny.\""},
+                    {"role": "assistant", "content": "\nmodified sentence: \"The yummy flavor was worth every penny.\""},
+                    {"role": "user", "content":"original sentence: \"The wings were delicious .\", original label: product, target label: environmnet, candidate phrases: ['January 1st', 'February 14th', 'March 30th', 'April 25th', 'May 10th', 'June 5th', 'July 20th', 'August 15th', 'September 3rd', 'October 12th', 'November 8th', 'December 24th']"},
+                    {"role": "assistant", "content": "\nmodified sentence: \"The January 1st wings were too cold.\""},
+                    {"role": "user", "content": "original sentence: \"Too many other places to shop with better prices .\", original label: price, target label: service, candidate phrases: ['costs .', 'pricing .', 'sale .', 'fees .', 'pricing .', '5-$10 .', '40.00 .', 'costs .', 'pricing .']"},
+                    {"role": "assistant","content": "\nmodified sentence: \"Too many other places to shop with better service costs.\""},
+                    {"role": "user", "content":  f"original sentence: \"{data['ori_text'][i].strip()}\", original label: {row['ori_label']}, pattern:{pattern}, highlight:{highlight} candidate phrases: {candidate_phrase}, target label: {target_label} \n\n###\n\n"},
+                    {"role":"assistant" ,"content":f"{outcome}"}
+
+                ]
+        
+            #text =  + '\nOriginal label: ' +  + '\nPattern: ' + pattern +  '\nHighlight: ' + highlight + '\nCandidate phrases: ' + candidate_phrase  + '\nTarget label: ' + target_label+ '\n\n###\n\n'
 
         except:
+            print("Error in processing row")
             continue
-        outcome = " "+ row['counterfactual'].strip() + "###"
-        message.append({"role":"user" ,"content":f"{text}"})
-        message.append({"role":"assistant" ,"content":f"{outcome}"})
         messages.append({"messages":message})
         # prompts.append(text)
         # completions.append(outcome)
         
     #df is the data we will use to finetune a gpt model    
-    df = pd.DataFrame(zip(prompts,completions),columns=['prompt','completion'])
+    # df = pd.DataFrame(zip(prompts,completions),columns=['prompt','completion'])
     
     finetuningdata_path = f"output_data/{DATA_FILE[:-4]}_GPT35_fine_tune_data.jsonl"
    
-    df.to_json( finetuningdata_path,orient='records',lines=True)
+    # df.to_json( finetuningdata_path,orient='records',lines=True)
 
     with open(finetuningdata_path, 'w') as f:
         for message in messages:
@@ -153,11 +174,8 @@ def fine_tune_model(file_path, candidate_phrases_path):
 
 
     #this is where we fine-tune the model
-    model_engine = "gpt-3.5-turbo" #"davinci-002"
-    n_epochs = 1
-    batch_size = 4
-    learning_rate = 1e-5
-    max_tokens = 1024
+    model_engine = "gpt-3.5-turbo-0125" #"davinci-002"
+
 
     # Create the fine-tuning job
     fine_tuning_job = client.fine_tuning.jobs.create(
